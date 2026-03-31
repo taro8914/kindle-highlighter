@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kindle Highlight Parser</title>
+<style>
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f7;
+    --bg-danger: #fff0f0;
+    --bg-warning: #fff8e6;
+    --bg-info: #e8f0fe;
+    --text-primary: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --text-tertiary: #aeaeb2;
+    --text-danger: #c4342d;
+    --text-warning: #946800;
+    --text-info: #1a56db;
+    --border-primary: #d2d2d7;
+    --border-secondary: #e5e5ea;
+    --border-tertiary: #ebebef;
+    --border-warning: #f0d58a;
+    --border-info: #a3c1f5;
+    --btn-bg: #f5f5f7;
+    --btn-bg-hover: #e8e8ed;
+    --btn-primary-bg: #1d1d1f;
+    --btn-primary-text: #ffffff;
+    --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1c1c1e;
+      --bg-secondary: #2c2c2e;
+      --bg-danger: #3a1c1c;
+      --bg-warning: #3a3018;
+      --bg-info: #1c2a3e;
+      --text-primary: #f5f5f7;
+      --text-secondary: #a1a1a6;
+      --text-tertiary: #636366;
+      --text-danger: #ff6b6b;
+      --text-warning: #f0c040;
+      --text-info: #6ea8fe;
+      --border-primary: #48484a;
+      --border-secondary: #3a3a3c;
+      --border-tertiary: #38383a;
+      --border-warning: #6e5a1e;
+      --border-info: #2a4a7a;
+      --btn-bg: #3a3a3c;
+      --btn-bg-hover: #48484a;
+      --btn-primary-bg: #f5f5f7;
+      --btn-primary-text: #1c1c1e;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    padding: 2rem 1.25rem;
+  }
+  #root { max-width: 860px; margin: 0 auto; }
+
+  button {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 8px 20px;
+    border: 0.5px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    background: var(--btn-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: var(--btn-bg-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    border-color: transparent;
+  }
+  button.primary:hover:not(:disabled) { opacity: 0.85; }
+</style>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js" integrity="sha384-RgwZ6hj+t5cUuE1+O8VrbNENCeVFTIjTroWdTHusMbpfssSx1gxln5reSjtRkxWs"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const HIGHLIGHT_RE = /^(水色|黄色|ピンク色|オレンジ色|青色)のハイライト \| 位置: (\d+)/;
+const DATE_RE = /^注釈の最終更新日:/;
+const COUNT_RE = /^\d+ 個のハイライト/;
+const NOISE_RE = /^エクスポートの制限に達したため/;
+
+function extractBooks(rawText) {
+  const sectionStart = rawText.indexOf("メモ付きのKindle本:");
+  if (sectionStart === -1) return [];
+  const section = rawText.substring(sectionStart + "メモ付きのKindle本:".length);
+  const lines = section.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  const books = [];
+  let currentBook = null;
+  let inHighlight = false;
+  let buf = [];
+  let truncated = false;
+
+  const flush = () => {
+    if (currentBook && buf.length > 0) {
+      const text = buf.join(" ").replace(/\s+/g, " ").trim();
+      if (text.length > 10) {
+        currentBook.highlights.push({ text, truncated });
+      }
+    }
+    buf = [];
+    truncated = false;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (NOISE_RE.test(line)) {
+      if (inHighlight) { truncated = true; } else if (currentBook) { currentBook.hasHiddenHighlights = true; }
+      continue;
+    }
+    if (line === "オプション") continue;
+    if (COUNT_RE.test(line)) continue;
+    if (DATE_RE.test(line)) continue;
+    if (HIGHLIGHT_RE.test(line)) { flush(); inHighlight = true; continue; }
+
+    const next1 = lines[i + 1] || "";
+    const next2 = lines[i + 2] || "";
+
+    if (DATE_RE.test(next1) || DATE_RE.test(next2)) {
+      flush();
+      inHighlight = false;
+      const title = line;
+      let author = "";
+      if (!DATE_RE.test(next1)) { author = next1; i++; }
+      currentBook = { title, author, highlights: [], hasHiddenHighlights: false };
+      books.push(currentBook);
+      continue;
+    }
+    if (inHighlight) buf.push(line);
+  }
+  flush();
+  return books.filter((b) => b.highlights.length > 0);
+}
+
+function toMarkdown(book) {
+  const lines = [];
+  lines.push(`# ${book.title}`);
+  if (book.author) lines.push(`著者: ${book.author}`);
+  lines.push("");
+  if (book.hasHiddenHighlights) {
+    lines.push(`> [!info] 一部のハイライトが非表示`);
+    lines.push(`> エクスポート制限により表示されていないハイライトがあります。原文を確認してください。`);
+    lines.push("");
+  }
+  book.highlights.forEach((h) => {
+    lines.push(`- ${h.text}`);
+    if (h.truncated) {
+      lines.push("");
+      lines.push(`> [!warning] 省略あり — 要確認`);
+      lines.push(`> このハイライトはエクスポート制限により途中で切れています。原文を確認して補記してください。`);
+    }
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function KindleParser() {
+  const [input, setInput] = useState("");
+  const [books, setBooks] = useState([]);
+  const [selected, setSelected] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+
+  const parse = () => {
+    setError("");
+    setCopied(false);
+    const result = extractBooks(input);
+    if (result.length === 0) {
+      setError("ハイライトが見つかりませんでした。read.amazon.co.jp/notebook のテキストを貼り付けてください。");
+      setBooks([]);
+    } else {
+      setBooks(result);
+      setSelected(0);
+    }
+  };
+
+  const copy = async () => {
+    if (!books[selected]) return;
+    const text = toMarkdown(books[selected]);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      // clipboard API が使えない場合のフォールバック
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+    }
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const currentBook = books[selected];
+  const md = currentBook ? toMarkdown(currentBook) : "";
+  const truncatedCount = currentBook ? currentBook.highlights.filter((h) => h.truncated).length : 0;
+
+  return (
+    <div>
+      <div style={{
+        background: "var(--bg-secondary)",
+        border: "0.5px solid var(--border-tertiary)",
+        borderRadius: "var(--radius-lg)",
+        padding: "1rem 1.25rem",
+        marginBottom: "1.25rem",
+        fontSize: "13px",
+        color: "var(--text-secondary)",
+        lineHeight: "1.6",
+      }}>
+        <strong style={{ color: "var(--text-primary)", fontWeight: 500 }}>使い方：</strong>{" "}
+        <a href="https://read.amazon.co.jp/notebook" target="_blank" rel="noopener noreferrer"
+          style={{ color: "var(--text-info)" }}>read.amazon.co.jp/notebook</a> を開き
+        Ctrl+A → Ctrl+C でコピーして貼り付け。ハイライトだけ抽出し、省略箇所に Obsidian callout で目印を付けます。
+      </div>
+
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="ここにコピーしたテキストを貼り付け..."
+        style={{
+          width: "100%", height: "160px", resize: "vertical",
+          fontFamily: "var(--font-mono)", fontSize: "12px", padding: "12px",
+          boxSizing: "border-box",
+          border: "0.5px solid var(--border-secondary)",
+          borderRadius: "var(--radius-lg)",
+          background: "var(--bg-primary)", color: "var(--text-primary)",
+          lineHeight: "1.5",
+        }}
+      />
+
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", marginTop: "12px", marginBottom: "1.5rem" }}>
+        <button className="primary" onClick={parse} disabled={!input.trim()}>パース</button>
+        {books.length > 0 && (
+          <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            {books.length}冊 / 合計{books.reduce((s, b) => s + b.highlights.length, 0)}件
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div style={{
+          padding: "12px 16px",
+          background: "var(--bg-danger)", color: "var(--text-danger)",
+          borderRadius: "var(--radius-md)", fontSize: "13px", marginBottom: "1.25rem",
+        }}>
+          {error}
+        </div>
+      )}
+
+      {books.length > 0 && (
+        <div>
+          {books.length > 1 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "1rem" }}>
+              {books.map((b, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setSelected(i); setCopied(false); }}
+                  title={b.title}
+                  style={{
+                    padding: "6px 14px", fontSize: "12px",
+                    background: selected === i ? "var(--bg-info)" : "var(--bg-secondary)",
+                    color: selected === i ? "var(--text-info)" : "var(--text-secondary)",
+                    border: selected === i ? "0.5px solid var(--border-info)" : "0.5px solid var(--border-tertiary)",
+                    borderRadius: "var(--radius-md)", cursor: "pointer",
+                    maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}
+                >
+                  {b.title.length > 28 ? b.title.slice(0, 28) + "…" : b.title}
+                  <span style={{ marginLeft: "6px", opacity: 0.7 }}>({b.highlights.length})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                {currentBook.title} — {currentBook.highlights.length}件
+              </span>
+              {truncatedCount > 0 && (
+                <span style={{
+                  fontSize: "12px", padding: "2px 10px",
+                  background: "var(--bg-warning)", color: "var(--text-warning)",
+                  border: "0.5px solid var(--border-warning)", borderRadius: "var(--radius-md)",
+                }}>
+                  省略あり {truncatedCount}箇所
+                </span>
+              )}
+            </div>
+            <button onClick={copy} style={{ fontSize: "13px", padding: "6px 16px" }}>
+              {copied ? "コピー済み ✓" : "Markdownをコピー"}
+            </button>
+          </div>
+
+          <pre style={{
+            background: "var(--bg-secondary)",
+            border: "0.5px solid var(--border-tertiary)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.25rem", fontSize: "12.5px",
+            fontFamily: "var(--font-mono)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            color: "var(--text-primary)", lineHeight: "1.65",
+            maxHeight: "520px", overflowY: "auto",
+          }}>
+            {md}
+          </pre>
+
+          <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "8px" }}>
+            Obsidianに貼り付けると <code>[!warning]</code> が黄色の callout として表示されます。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<KindleParser />);
+</script>
+</body>
+</html>
