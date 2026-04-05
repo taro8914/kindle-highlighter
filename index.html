@@ -1,98 +1,4 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindle Highlight Parser</title>
-<style>
-  :root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f5f5f7;
-    --bg-danger: #fff0f0;
-    --bg-warning: #fff8e6;
-    --bg-info: #e8f0fe;
-    --text-primary: #1d1d1f;
-    --text-secondary: #6e6e73;
-    --text-tertiary: #aeaeb2;
-    --text-danger: #c4342d;
-    --text-warning: #946800;
-    --text-info: #1a56db;
-    --border-primary: #d2d2d7;
-    --border-secondary: #e5e5ea;
-    --border-tertiary: #ebebef;
-    --border-warning: #f0d58a;
-    --border-info: #a3c1f5;
-    --btn-bg: #f5f5f7;
-    --btn-bg-hover: #e8e8ed;
-    --btn-primary-bg: #1d1d1f;
-    --btn-primary-text: #ffffff;
-    --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
-    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg-primary: #1c1c1e;
-      --bg-secondary: #2c2c2e;
-      --bg-danger: #3a1c1c;
-      --bg-warning: #3a3018;
-      --bg-info: #1c2a3e;
-      --text-primary: #f5f5f7;
-      --text-secondary: #a1a1a6;
-      --text-tertiary: #636366;
-      --text-danger: #ff6b6b;
-      --text-warning: #f0c040;
-      --text-info: #6ea8fe;
-      --border-primary: #48484a;
-      --border-secondary: #3a3a3c;
-      --border-tertiary: #38383a;
-      --border-warning: #6e5a1e;
-      --border-info: #2a4a7a;
-      --btn-bg: #3a3a3c;
-      --btn-bg-hover: #48484a;
-      --btn-primary-bg: #f5f5f7;
-      --btn-primary-text: #1c1c1e;
-    }
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: var(--font-sans);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    line-height: 1.5;
-    padding: 2rem 1.25rem;
-  }
-  #root { max-width: 860px; margin: 0 auto; }
-
-  button {
-    font-family: var(--font-sans);
-    font-size: 13px;
-    padding: 8px 20px;
-    border: 0.5px solid var(--border-secondary);
-    border-radius: var(--radius-md);
-    background: var(--btn-bg);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  button:hover:not(:disabled) { background: var(--btn-bg-hover); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.primary {
-    background: var(--btn-primary-bg);
-    color: var(--btn-primary-text);
-    border-color: transparent;
-  }
-  button.primary:hover:not(:disabled) { opacity: 0.85; }
-</style>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js" integrity="sha384-RgwZ6hj+t5cUuE1+O8VrbNENCeVFTIjTroWdTHusMbpfssSx1gxln5reSjtRkxWs"></script>
-</head>
-<body>
-<div id="root"></div>
-<script type="text/babel">
-const { useState } = React;
+import { useState, useRef, useCallback } from "react";
 
 const HIGHLIGHT_RE = /^(水色|黄色|ピンク色|オレンジ色|青色)のハイライト \| 位置: (\d+)/;
 const DATE_RE = /^注釈の最終更新日:/;
@@ -103,7 +9,13 @@ function extractBooks(rawText) {
   const sectionStart = rawText.indexOf("メモ付きのKindle本:");
   if (sectionStart === -1) return [];
   const section = rawText.substring(sectionStart + "メモ付きのKindle本:".length);
-  const lines = section.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+
+  const lines = section.split("\n").reduce((acc, l) => {
+    const trimmed = l.trim();
+    if (trimmed.length > 0) acc.push(trimmed);
+    return acc;
+  }, []);
+
   const books = [];
   let currentBook = null;
   let inHighlight = false;
@@ -123,14 +35,25 @@ function extractBooks(rawText) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
     if (NOISE_RE.test(line)) {
-      if (inHighlight) { truncated = true; } else if (currentBook) { currentBook.hasHiddenHighlights = true; }
+      if (inHighlight) {
+        truncated = true;
+      } else if (currentBook) {
+        currentBook.hasHiddenHighlights = true;
+      }
       continue;
     }
+
     if (line === "オプション") continue;
     if (COUNT_RE.test(line)) continue;
     if (DATE_RE.test(line)) continue;
-    if (HIGHLIGHT_RE.test(line)) { flush(); inHighlight = true; continue; }
+
+    if (HIGHLIGHT_RE.test(line)) {
+      flush();
+      inHighlight = true;
+      continue;
+    }
 
     const next1 = lines[i + 1] || "";
     const next2 = lines[i + 2] || "";
@@ -140,69 +63,184 @@ function extractBooks(rawText) {
       inHighlight = false;
       const title = line;
       let author = "";
-      if (!DATE_RE.test(next1)) { author = next1; i++; }
+      if (!DATE_RE.test(next1)) {
+        author = next1;
+        i++;
+      }
       currentBook = { title, author, highlights: [], hasHiddenHighlights: false };
       books.push(currentBook);
       continue;
     }
+
     if (inHighlight) buf.push(line);
   }
   flush();
+
   return books.filter((b) => b.highlights.length > 0);
 }
 
 function toMarkdown(book) {
-  const lines = [];
-  lines.push(`# ${book.title}`);
-  if (book.author) lines.push(`著者: ${book.author}`);
-  lines.push("");
+  const parts = [];
+  parts.push(`# ${book.title}`);
+  if (book.author) parts.push(`著者: ${book.author}`);
+  parts.push("");
+
   if (book.hasHiddenHighlights) {
-    lines.push(`> [!info] 一部のハイライトが非表示`);
-    lines.push(`> エクスポート制限により表示されていないハイライトがあります。原文を確認してください。`);
-    lines.push("");
+    parts.push(`> [!info] 一部のハイライトが非表示`);
+    parts.push(`> エクスポート制限により表示されていないハイライトがあります。原文を確認してください。`);
+    parts.push("");
   }
+
   book.highlights.forEach((h) => {
-    lines.push(`- ${h.text}`);
+    parts.push(`- ${h.text}`);
     if (h.truncated) {
-      lines.push("");
-      lines.push(`> [!warning] 省略あり — 要確認`);
-      lines.push(`> このハイライトはエクスポート制限により途中で切れています。原文を確認して補記してください。`);
+      parts.push("");
+      parts.push(`> [!warning] 省略あり — 要確認`);
+      parts.push(`> このハイライトはエクスポート制限により途中で切れています。原文を確認して補記してください。`);
     }
-    lines.push("");
+    parts.push("");
   });
-  return lines.join("\n");
+
+  return parts.join("\n");
 }
 
-function KindleParser() {
-  const [input, setInput] = useState("");
+/* ── size formatter ── */
+function fmtSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/* ============================================================
+   Component
+   ============================================================ */
+export default function KindleParser() {
   const [books, setBooks] = useState([]);
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [inputMode, setInputMode] = useState("file"); // "file" | "paste"
+  const [dragOver, setDragOver] = useState(false);
+  const [fileInfo, setFileInfo] = useState(null); // { name, size }
+  const [pasteText, setPasteText] = useState("");
 
-  const parse = () => {
+  const rawTextRef = useRef("");
+  const fileInputRef = useRef(null);
+  const parseIdRef = useRef(0);
+
+  /* ── read a File as text (handles large files via streaming if available) ── */
+  const readFile = useCallback((file) => {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error("no file"));
+      /* For very large files, FileReader is fine — it's native and fast */
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file, "utf-8");
+    });
+  }, []);
+
+  /* ── handle file selection (click or drop) ── */
+  const handleFile = useCallback(async (file) => {
+    if (!file) return;
     setError("");
     setCopied(false);
-    const result = extractBooks(input);
-    if (result.length === 0) {
-      setError("ハイライトが見つかりませんでした。read.amazon.co.jp/notebook のテキストを貼り付けてください。");
-      setBooks([]);
-    } else {
-      setBooks(result);
-      setSelected(0);
+    setBooks([]);
+    setFileInfo({ name: file.name, size: file.size });
+
+    try {
+      const text = await readFile(file);
+      /* Basic binary detection: if >1% of chars are control chars, it's likely not text */
+      const sample = text.slice(0, 4096);
+      const controlChars = [...sample].filter(c => {
+        const code = c.charCodeAt(0);
+        return code < 9 || (code > 13 && code < 32);
+      }).length;
+      if (sample.length > 0 && controlChars / sample.length > 0.01) {
+        setError("このファイルはテキストファイルではないようです。.txt または .html ファイルを選択してください。");
+        return;
+      }
+      rawTextRef.current = text;
+      runParse(text);
+    } catch (e) {
+      setError("ファイルの読み込みに失敗しました: " + e.message);
     }
+  }, []);
+
+  /* ── paste handler (for textarea mode) ── */
+  const handlePaste = useCallback((e) => {
+    /* Read directly from clipboard event for large text —
+       this avoids React controlled-input bottleneck */
+    const pasted = e.clipboardData.getData("text/plain");
+    if (pasted) {
+      e.preventDefault();
+      rawTextRef.current = pasted;
+      setPasteText(`(${fmtSize(new Blob([pasted]).size)} 貼り付け済み — ${pasted.split("\n").length.toLocaleString()} 行)`);
+      runParse(pasted);
+    }
+  }, []);
+
+  /* ── parse (deferred to keep UI responsive) ── */
+  const runParse = useCallback((text) => {
+    setParsing(true);
+    setError("");
+    setCopied(false);
+
+    const id = ++parseIdRef.current;
+
+    /* Use setTimeout(0) to let the "パース中…" UI paint first */
+    setTimeout(() => {
+      if (id !== parseIdRef.current) return; // stale — a newer parse was triggered
+      try {
+        const result = extractBooks(text);
+        if (result.length === 0) {
+          setError("ハイライトが見つかりませんでした。read.amazon.co.jp/notebook のテキストを貼り付けるか、保存した .txt ファイルをドロップしてください。");
+          setBooks([]);
+        } else {
+          setBooks(result);
+          setSelected(0);
+        }
+      } catch (e) {
+        setError("パースエラー: " + e.message);
+      } finally {
+        setParsing(false);
+      }
+    }, 0);
+  }, []);
+
+  /* ── drag & drop ── */
+  const onDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const onDragLeave = () => setDragOver(false);
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
   };
 
+  /* ── re-parse from textarea (manual trigger) ── */
+  const parseFromTextarea = () => {
+    if (!rawTextRef.current.trim()) return;
+    runParse(rawTextRef.current);
+  };
+
+  const currentBook = books[selected];
+  const md = currentBook ? toMarkdown(currentBook) : "";
+  const truncatedCount = currentBook
+    ? currentBook.highlights.filter((h) => h.truncated).length
+    : 0;
+
   const copy = async () => {
-    if (!books[selected]) return;
-    const text = toMarkdown(books[selected]);
+    if (!currentBook) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(md);
       setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // clipboard API が使えない場合のフォールバック
+      /* Fallback for insecure contexts or older browsers */
       const ta = document.createElement("textarea");
-      ta.value = text;
+      ta.value = md;
       ta.style.position = "fixed";
       ta.style.opacity = "0";
       document.body.appendChild(ta);
@@ -210,66 +248,224 @@ function KindleParser() {
       document.execCommand("copy");
       document.body.removeChild(ta);
       setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-    setTimeout(() => setCopied(false), 2000);
   };
 
-  const currentBook = books[selected];
-  const md = currentBook ? toMarkdown(currentBook) : "";
-  const truncatedCount = currentBook ? currentBook.highlights.filter((h) => h.truncated).length : 0;
+  /* ── download as .md ── */
+  const download = () => {
+    if (!currentBook) return;
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${currentBook.title.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 80)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /* ── styles ── */
+  const S = {
+    root: { padding: "1.5rem 0", maxWidth: "860px", fontFamily: "'Noto Sans JP', 'Hiragino Sans', sans-serif" },
+    info: {
+      background: "var(--color-background-secondary)",
+      border: "0.5px solid var(--color-border-tertiary)",
+      borderRadius: "var(--border-radius-lg)",
+      padding: "1rem 1.25rem",
+      marginBottom: "1.25rem",
+      fontSize: "13px",
+      color: "var(--color-text-secondary)",
+      lineHeight: 1.6,
+    },
+    tabRow: { display: "flex", gap: "4px", marginBottom: "1rem" },
+    tab: (active) => ({
+      padding: "7px 18px",
+      fontSize: "12.5px",
+      cursor: "pointer",
+      border: "0.5px solid " + (active ? "var(--color-border-info)" : "var(--color-border-tertiary)"),
+      borderRadius: "var(--border-radius-md)",
+      background: active ? "var(--color-background-info)" : "var(--color-background-secondary)",
+      color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+    }),
+    dropzone: (over) => ({
+      border: `2px dashed ${over ? "var(--color-border-info)" : "var(--color-border-secondary)"}`,
+      borderRadius: "var(--border-radius-lg)",
+      background: over ? "var(--color-background-info)" : "var(--color-background-primary)",
+      padding: "3rem 2rem",
+      textAlign: "center",
+      cursor: "pointer",
+      transition: "all .15s",
+      marginBottom: "1rem",
+    }),
+    textarea: {
+      width: "100%",
+      height: "120px",
+      resize: "vertical",
+      fontFamily: "var(--font-mono)",
+      fontSize: "12px",
+      padding: "12px",
+      boxSizing: "border-box",
+      border: "0.5px solid var(--color-border-secondary)",
+      borderRadius: "var(--border-radius-lg)",
+      background: "var(--color-background-primary)",
+      color: "var(--color-text-primary)",
+      lineHeight: 1.5,
+    },
+    pre: {
+      background: "var(--color-background-secondary)",
+      border: "0.5px solid var(--color-border-tertiary)",
+      borderRadius: "var(--border-radius-lg)",
+      padding: "1.25rem",
+      fontSize: "12.5px",
+      fontFamily: "var(--font-mono)",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      color: "var(--color-text-primary)",
+      lineHeight: 1.65,
+      maxHeight: "520px",
+      overflowY: "auto",
+    },
+  };
 
   return (
-    <div>
-      <div style={{
-        background: "var(--bg-secondary)",
-        border: "0.5px solid var(--border-tertiary)",
-        borderRadius: "var(--radius-lg)",
-        padding: "1rem 1.25rem",
-        marginBottom: "1.25rem",
-        fontSize: "13px",
-        color: "var(--text-secondary)",
-        lineHeight: "1.6",
-      }}>
-        <strong style={{ color: "var(--text-primary)", fontWeight: 500 }}>使い方：</strong>{" "}
-        <a href="https://read.amazon.co.jp/notebook" target="_blank" rel="noopener noreferrer"
-          style={{ color: "var(--text-info)" }}>read.amazon.co.jp/notebook</a> を開き
-        Ctrl+A → Ctrl+C でコピーして貼り付け。ハイライトだけ抽出し、省略箇所に Obsidian callout で目印を付けます。
+    <div style={S.root}>
+      {/* instructions */}
+      <div style={S.info}>
+        <strong style={{ color: "var(--color-text-primary)", fontWeight: 500 }}>使い方：</strong>{" "}
+        <a href="https://read.amazon.co.jp/notebook" target="_blank" rel="noreferrer"
+           style={{ color: "var(--color-text-info)" }}>read.amazon.co.jp/notebook</a> を開き、
+        ページ全体を Ctrl+A → Ctrl+C でコピーし、<strong>ペースト入力</strong>欄に貼り付けてください。
+        テキストが長すぎる場合は、コピーしたテキストを .txt に保存し<strong>ファイル入力</strong>でドロップするのが確実です。
       </div>
 
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        placeholder="ここにコピーしたテキストを貼り付け..."
-        style={{
-          width: "100%", height: "160px", resize: "vertical",
-          fontFamily: "var(--font-mono)", fontSize: "12px", padding: "12px",
-          boxSizing: "border-box",
-          border: "0.5px solid var(--border-secondary)",
-          borderRadius: "var(--radius-lg)",
-          background: "var(--bg-primary)", color: "var(--text-primary)",
-          lineHeight: "1.5",
-        }}
-      />
-
-      <div style={{ display: "flex", gap: "12px", alignItems: "center", marginTop: "12px", marginBottom: "1.5rem" }}>
-        <button className="primary" onClick={parse} disabled={!input.trim()}>パース</button>
-        {books.length > 0 && (
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-            {books.length}冊 / 合計{books.reduce((s, b) => s + b.highlights.length, 0)}件
-          </span>
-        )}
+      {/* mode tabs */}
+      <div style={S.tabRow}>
+        <button style={S.tab(inputMode === "file")} onClick={() => setInputMode("file")}>
+          ファイル入力
+        </button>
+        <button style={S.tab(inputMode === "paste")} onClick={() => setInputMode("paste")}>
+          ペースト入力
+        </button>
       </div>
+
+      {/* ── FILE INPUT ── */}
+      {inputMode === "file" && (
+        <>
+          <div
+            style={S.dropzone(dragOver)}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.text,.html,.htm"
+              style={{ display: "none" }}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+            <div style={{ fontSize: "28px", marginBottom: "8px", opacity: 0.5 }}>📄</div>
+            <div style={{ fontSize: "13.5px", color: "var(--color-text-secondary)" }}>
+              .txt / .html ファイルをドロップ、またはクリックして選択
+            </div>
+            {fileInfo && (
+              <div style={{ marginTop: "10px", fontSize: "12px", color: "var(--color-text-tertiary)" }}>
+                {fileInfo.name} ({fmtSize(fileInfo.size)})
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── PASTE INPUT ── */}
+      {inputMode === "paste" && (
+        <>
+          <div
+            style={{ position: "relative", marginBottom: "1rem" }}
+          >
+            {/*
+              Use a plain div with onPaste instead of a controlled textarea.
+              This avoids React re-rendering the entire DOM on every keystroke
+              for multi-MB strings, which is the main cause of "cutting off".
+            */}
+            <div
+              contentEditable
+              suppressContentEditableWarning
+              onPaste={handlePaste}
+              onDrop={(e) => {
+                /* Block drag-and-drop of HTML into contentEditable to prevent XSS.
+                   Only allow plain text drops. */
+                e.preventDefault();
+                const text = e.dataTransfer.getData("text/plain");
+                if (text) {
+                  /* Insert plain text at cursor via Selection API (execCommand-free) */
+                  const sel = window.getSelection();
+                  if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    range.deleteContents();
+                    range.insertNode(document.createTextNode(text));
+                    range.collapse(false);
+                  }
+                  rawTextRef.current = e.currentTarget.innerText;
+                }
+              }}
+              onInput={(e) => { rawTextRef.current = e.currentTarget.innerText; }}
+              style={{
+                ...S.textarea,
+                height: "140px",
+                overflowY: "auto",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                outline: "none",
+              }}
+              data-placeholder="ここに Ctrl+V で貼り付け（自動パース）…"
+            />
+          </div>
+
+          {pasteText && (
+            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginBottom: "8px" }}>
+              {pasteText}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "1rem" }}>
+            <button onClick={parseFromTextarea} style={{ padding: "8px 22px" }}>
+              再パース
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── status ── */}
+      {parsing && (
+        <div style={{ padding: "16px", textAlign: "center", color: "var(--color-text-secondary)", fontSize: "13px" }}>
+          パース中…
+        </div>
+      )}
 
       {error && (
         <div style={{
           padding: "12px 16px",
-          background: "var(--bg-danger)", color: "var(--text-danger)",
-          borderRadius: "var(--radius-md)", fontSize: "13px", marginBottom: "1.25rem",
+          background: "var(--color-background-danger)",
+          color: "var(--color-text-danger)",
+          borderRadius: "var(--border-radius-md)",
+          fontSize: "13px",
+          marginBottom: "1.25rem",
         }}>
           {error}
         </div>
       )}
 
+      {books.length > 0 && (
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "1rem" }}>
+          <span style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
+            {books.length}冊 / 合計{books.reduce((s, b) => s + b.highlights.length, 0).toLocaleString()}件
+          </span>
+        </div>
+      )}
+
+      {/* ── results ── */}
       {books.length > 0 && (
         <div>
           {books.length > 1 && (
@@ -280,12 +476,17 @@ function KindleParser() {
                   onClick={() => { setSelected(i); setCopied(false); }}
                   title={b.title}
                   style={{
-                    padding: "6px 14px", fontSize: "12px",
-                    background: selected === i ? "var(--bg-info)" : "var(--bg-secondary)",
-                    color: selected === i ? "var(--text-info)" : "var(--text-secondary)",
-                    border: selected === i ? "0.5px solid var(--border-info)" : "0.5px solid var(--border-tertiary)",
-                    borderRadius: "var(--radius-md)", cursor: "pointer",
-                    maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    padding: "6px 14px",
+                    fontSize: "12px",
+                    background: selected === i ? "var(--color-background-info)" : "var(--color-background-secondary)",
+                    color: selected === i ? "var(--color-text-info)" : "var(--color-text-secondary)",
+                    border: selected === i ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+                    borderRadius: "var(--border-radius-md)",
+                    cursor: "pointer",
+                    maxWidth: "260px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {b.title.length > 28 ? b.title.slice(0, 28) + "…" : b.title}
@@ -297,48 +498,49 @@ function KindleParser() {
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              <span style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
                 {currentBook.title} — {currentBook.highlights.length}件
               </span>
               {truncatedCount > 0 && (
                 <span style={{
-                  fontSize: "12px", padding: "2px 10px",
-                  background: "var(--bg-warning)", color: "var(--text-warning)",
-                  border: "0.5px solid var(--border-warning)", borderRadius: "var(--radius-md)",
+                  fontSize: "12px",
+                  padding: "2px 10px",
+                  background: "var(--color-background-warning)",
+                  color: "var(--color-text-warning)",
+                  border: "0.5px solid var(--color-border-warning)",
+                  borderRadius: "var(--border-radius-md)",
                 }}>
                   省略あり {truncatedCount}箇所
                 </span>
               )}
             </div>
-            <button onClick={copy} style={{ fontSize: "13px", padding: "6px 16px" }}>
-              {copied ? "コピー済み ✓" : "Markdownをコピー"}
-            </button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={copy} style={{ fontSize: "13px", padding: "6px 16px" }}>
+                {copied ? "コピー済み ✓" : "コピー"}
+              </button>
+              <button onClick={download} style={{ fontSize: "13px", padding: "6px 16px" }}>
+                .md 保存
+              </button>
+            </div>
           </div>
 
-          <pre style={{
-            background: "var(--bg-secondary)",
-            border: "0.5px solid var(--border-tertiary)",
-            borderRadius: "var(--radius-lg)",
-            padding: "1.25rem", fontSize: "12.5px",
-            fontFamily: "var(--font-mono)",
-            whiteSpace: "pre-wrap", wordBreak: "break-word",
-            color: "var(--text-primary)", lineHeight: "1.65",
-            maxHeight: "520px", overflowY: "auto",
-          }}>
-            {md}
-          </pre>
+          <pre style={S.pre}>{md}</pre>
 
-          <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "8px" }}>
+          <p style={{ fontSize: "12px", color: "var(--color-text-tertiary)", marginTop: "8px" }}>
             Obsidianに貼り付けると <code>[!warning]</code> が黄色の callout として表示されます。
           </p>
         </div>
       )}
+
+      <style>{`
+        [contenteditable]:empty:before {
+          content: attr(data-placeholder);
+          color: var(--color-text-tertiary);
+          font-family: var(--font-mono);
+          font-size: 12px;
+          pointer-events: none;
+        }
+      `}</style>
     </div>
   );
 }
-
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<KindleParser />);
-</script>
-</body>
-</html>
