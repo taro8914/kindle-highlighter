@@ -335,7 +335,37 @@ function extractBooks(rawText) {
     if (inHL) buf.push(line);
   }
   flush();
-  return books.filter(b => b.highlights.length > 0);
+
+  /* ── merge duplicate book entries & deduplicate highlights ──
+     Kindle notebook pages often render highlights in multiple DOM
+     containers (lazy-load, pagination, print view, etc.).
+     Ctrl+A captures all of them, producing:
+       - The same book title appearing multiple times → split entries
+       - The same highlight text appearing multiple times within a book
+     Fix both by merging same-title books, then deduplicating highlights. */
+  const merged = new Map();
+  for (const b of books) {
+    const key = b.title;
+    if (merged.has(key)) {
+      const existing = merged.get(key);
+      existing.highlights.push(...b.highlights);
+      if (b.hasHidden) existing.hasHidden = true;
+      if (!existing.author && b.author) existing.author = b.author;
+    } else {
+      merged.set(key, b);
+    }
+  }
+
+  for (const b of merged.values()) {
+    const seen = new Set();
+    b.highlights = b.highlights.filter(h => {
+      if (seen.has(h.text)) return false;
+      seen.add(h.text);
+      return true;
+    });
+  }
+
+  return [...merged.values()].filter(b => b.highlights.length > 0);
 }
 
 function toMarkdown(book) {
